@@ -5,6 +5,7 @@
 #include <string>
 #include <stdexcept>
 #include <cmath>
+#include "simulation_stats.hpp"
 
 namespace cache_sim {
 
@@ -42,6 +43,7 @@ struct CacheConfig {
     MappingStrategy mapping_strategy = MappingStrategy::SetAssociative;
     std::size_t associativity = 4;             // 1 for DirectMapped, 2, 4, 8 for SetAssociative, derived for FullyAssociative
     ReplacementPolicyType replacement_policy = ReplacementPolicyType::LRU;
+    TimingAssumptions timing;
 
     static constexpr bool isPowerOfTwo(std::size_t n) noexcept {
         return n > 0 && (n & (n - 1)) == 0;
