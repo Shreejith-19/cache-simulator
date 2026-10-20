@@ -38,16 +38,23 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Crow)
 
-# Main backend executable
+# Cache Simulation Engine Static Library
+add_library(cache_engine STATIC
+    src/cache.cpp
+    src/workload_generator.cpp
+)
+
+target_include_directories(cache_engine PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# Main backend server executable
 add_executable(cache_simulator_backend
     src/main.cpp
 )
 
-target_include_directories(cache_simulator_backend PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
 target_link_libraries(cache_simulator_backend PRIVATE
+    cache_engine
     Crow::Crow
 )
 
@@ -56,4 +63,5 @@ if (WIN32)
 endif()
 
 # Unit tests
+enable_testing()
 add_subdirectory(tests)
