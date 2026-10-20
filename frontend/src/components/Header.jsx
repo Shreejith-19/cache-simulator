@@ -3,7 +3,6 @@ import React from 'react';
 export default function Header({ backendStatus, onRetryHealth }) {
   const isOnline = backendStatus.state === 'online';
   const isLoading = backendStatus.state === 'loading';
-  const isError = backendStatus.state === 'error';
 
   return (
     <header className="bg-slate-900/90 backdrop-blur-sm border-b border-slate-800 sticky top-0 z-50 px-4 sm:px-8 py-3.5 transition-colors">
