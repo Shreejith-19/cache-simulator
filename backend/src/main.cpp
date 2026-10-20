@@ -143,10 +143,95 @@ int main() {
         }
     });
 
+    // 4. POST /api/compare - Compare multiple cache configurations against the same workload trace
+    CROW_ROUTE(app, "/api/compare").methods("POST"_method, "OPTIONS"_method)
+    ([](const crow::request& req) {
+        if (req.method == "OPTIONS"_method) {
+            crow::response res(204);
+            apply_cors_headers(res);
+            return res;
+        }
+
+        try {
+            crow::json::rvalue body_json = crow::json::load(req.body);
+            if (!body_json) {
+                return make_error_response(400, "Invalid JSON payload in request body.");
+            }
+
+            auto [parsed_req, validation] = cache_sim::CompareRequest::fromJson(body_json);
+            if (!validation.valid || !parsed_req.has_value()) {
+                return make_error_response(400, validation.error_message);
+            }
+
+            const auto& compare_req = *parsed_req;
+
+            // Generate memory access trace ONCE for all configurations
+            std::vector<uint64_t> trace = cache_sim::WorkloadGenerator::generate(compare_req.workload);
+
+            cache_sim::CompareResponse comp_response;
+            comp_response.workloadConfig = compare_req.workload;
+
+            // Store sample trace addresses (up to 10) for UI / verification
+            std::size_t sample_count = std::min<std::size_t>(trace.size(), 10);
+            for (std::size_t i = 0; i < sample_count; ++i) {
+                comp_response.sampleAddresses.push_back(cache_sim::format_hex(trace[i]));
+            }
+
+            double max_hit_rate = -1.0;
+            double min_amat = 1e18;
+            std::string best_hit_rate_id;
+            std::string best_amat_id;
+
+            // Run each configuration through the exact same trace
+            comp_response.comparisons.reserve(compare_req.configurations.size());
+            for (const auto& config_item : compare_req.configurations) {
+                cache_sim::CacheConfig norm_cfg = config_item.toCacheConfig();
+                cache_sim::Cache cache(norm_cfg);
+
+                for (uint64_t addr : trace) {
+                    cache.access(addr);
+                }
+
+                cache_sim::CompareItemResult item_result;
+                item_result.id = config_item.id;
+                item_result.label = config_item.label;
+                item_result.normalizedConfig = norm_cfg;
+                item_result.report = cache.getReport();
+
+                if (item_result.report.hitRate > max_hit_rate) {
+                    max_hit_rate = item_result.report.hitRate;
+                    best_hit_rate_id = config_item.id;
+                }
+
+                if (item_result.report.amatNs < min_amat) {
+                    min_amat = item_result.report.amatNs;
+                    best_amat_id = config_item.id;
+                }
+
+                comp_response.comparisons.push_back(std::move(item_result));
+            }
+
+            comp_response.highestHitRateConfigId = best_hit_rate_id;
+            comp_response.lowestAmatConfigId = best_amat_id;
+
+            crow::json::wvalue res_json = comp_response.toJson();
+            crow::response res(200, res_json);
+            apply_cors_headers(res);
+            return res;
+
+        } catch (const std::invalid_argument& ex) {
+            return make_error_response(400, std::string("Validation error: ") + ex.what());
+        } catch (const std::exception& ex) {
+            return make_error_response(500, std::string("Internal comparison error: ") + ex.what());
+        } catch (...) {
+            return make_error_response(500, "Unknown internal comparison failure.");
+        }
+    });
+
     // Root endpoint for simple browser / curl verification
     CROW_ROUTE(app, "/")
     ([]() {
-        return crow::response(200, "CPU Cache Simulator Backend is running.\nEndpoints:\n - GET  /api/health\n - GET  /api/config\n - POST /api/simulate\n");
+        return crow::response(200, "CPU Cache Simulator Backend is running.\nEndpoints:\n - GET  /api/health\n - GET  /api/config\n - POST /api/simulate\n - POST /api/compare\n");
     });
 
     const int port = 8080;
