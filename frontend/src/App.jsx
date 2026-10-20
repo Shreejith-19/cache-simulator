@@ -39,7 +39,6 @@ export default function App() {
 
   // Check Backend Health
   const checkHealth = useCallback(async () => {
-    setBackendStatus({ state: 'loading', error: null });
     try {
       await getBackendHealth();
       setBackendStatus({ state: 'online', error: null });
@@ -51,9 +50,29 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
+  const handleRetryHealth = () => {
+    setBackendStatus({ state: 'loading', error: null });
     checkHealth();
-  }, [checkHealth]);
+  };
+
+  useEffect(() => {
+    let ignore = false;
+    getBackendHealth()
+      .then(() => {
+        if (!ignore) setBackendStatus({ state: 'online', error: null });
+      })
+      .catch((err) => {
+        if (!ignore) {
+          setBackendStatus({
+            state: 'error',
+            error: err.message || 'Cannot reach C++ backend server.',
+          });
+        }
+      });
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   // Handle configuration updates
   const handleCacheConfigChange = (field, value) => {
@@ -125,7 +144,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-sky-500/25 selection:text-sky-200">
       {/* 1. Header */}
-      <Header backendStatus={backendStatus} onRetryHealth={checkHealth} />
+      <Header backendStatus={backendStatus} onRetryHealth={handleRetryHealth} />
 
       {/* Main Content Dashboard */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-8">
@@ -139,7 +158,7 @@ export default function App() {
               </p>
             </div>
             <button
-              onClick={checkHealth}
+              onClick={handleRetryHealth}
               className="btn btn-xs bg-rose-900/60 border-rose-700 text-rose-200 hover:bg-rose-800"
             >
               Retry
