@@ -364,6 +364,164 @@ void test_workload_generator() {
     std::cout << "  -> test_workload_generator PASSED!" << std::endl;
 }
 
+void test_statistics_and_timing_model() {
+    std::cout << "[TEST] Running test_statistics_and_timing_model..." << std::endl;
+
+    TimingAssumptions default_timing{1.0, 50.0, "Educational timing assumptions"};
+
+    // 1. 100% Hits Test
+    {
+        SimulationStats stats;
+        for (int i = 0; i < 50; ++i) {
+            stats.recordHit();
+        }
+        auto report = stats.generateReport(default_timing);
+
+        assert(report.totalAccesses == 50);
+        assert(report.hits == 50);
+        assert(report.misses == 0);
+        assert(report.hits + report.misses == report.totalAccesses);
+        assert(report.hitRate == 100.0);
+        assert(report.missRate == 0.0);
+        assert(std::abs((report.hitRate + report.missRate) - 100.0) < 1e-9);
+        // AMAT = 1.0 + (0.0 * 50.0) = 1.0 ns
+        assert(std::abs(report.amatNs - 1.0) < 1e-9);
+        assert(report.timing.hit_time_ns == 1.0);
+        assert(report.timing.additional_miss_penalty_ns == 50.0);
+        assert(!report.timing.notes.empty());
+    }
+
+    // 2. 100% Misses Test
+    {
+        SimulationStats stats;
+        for (int i = 0; i < 40; ++i) {
+            stats.recordMiss(false);
+        }
+        auto report = stats.generateReport(default_timing);
+
+        assert(report.totalAccesses == 40);
+        assert(report.hits == 0);
+        assert(report.misses == 40);
+        assert(report.hits + report.misses == report.totalAccesses);
+        assert(report.hitRate == 0.0);
+        assert(report.missRate == 100.0);
+        assert(std::abs((report.hitRate + report.missRate) - 100.0) < 1e-9);
+        // AMAT = 1.0 + (1.0 * 50.0) = 51.0 ns
+        assert(std::abs(report.amatNs - 51.0) < 1e-9);
+    }
+
+    // 3. Mixed Results Test
+    {
+        SimulationStats stats;
+        for (int i = 0; i < 80; ++i) {
+            stats.recordHit();
+        }
+        for (int i = 0; i < 20; ++i) {
+            stats.recordMiss(i % 2 == 0);
+        }
+        auto report = stats.generateReport(default_timing);
+
+        assert(report.totalAccesses == 100);
+        assert(report.hits == 80);
+        assert(report.misses == 20);
+        assert(report.evictions == 10);
+        assert(report.hits + report.misses == report.totalAccesses);
+        assert(std::abs(report.hitRate - 80.0) < 1e-9);
+        assert(std::abs(report.missRate - 20.0) < 1e-9);
+        assert(std::abs((report.hitRate + report.missRate) - 100.0) < 1e-9);
+        // AMAT = 1.0 + (0.20 * 50.0) = 1.0 + 10.0 = 11.0 ns
+        assert(std::abs(report.amatNs - 11.0) < 1e-9);
+
+        // Custom timing assumptions
+        TimingAssumptions custom_timing{2.5, 100.0, "Custom model"};
+        auto custom_report = stats.generateReport(custom_timing);
+        // AMAT = 2.5 + (0.20 * 100.0) = 2.5 + 20.0 = 22.5 ns
+        assert(std::abs(custom_report.amatNs - 22.5) < 1e-9);
+        assert(custom_report.timing.hit_time_ns == 2.5);
+        assert(custom_report.timing.additional_miss_penalty_ns == 100.0);
+    }
+
+    // 4. Zero Accesses Test (Avoid division by zero)
+    {
+        SimulationStats stats;
+        auto report = stats.generateReport(default_timing);
+
+        assert(report.totalAccesses == 0);
+        assert(report.hits == 0);
+        assert(report.misses == 0);
+        assert(report.evictions == 0);
+        assert(report.hits + report.misses == report.totalAccesses);
+        assert(report.hitRate == 0.0);
+        assert(report.missRate == 0.0);
+        assert(report.amatNs == 0.0); // Zero accesses should safely produce 0.0 ns AMAT
+    }
+
+    // 5. Full Precision & Display Rounding Test
+    {
+        SimulationStats stats;
+        stats.recordHit();
+        stats.recordMiss(false);
+        stats.recordMiss(false); // 1 hit, 2 misses, 3 total
+
+        auto report = stats.generateReport(default_timing);
+        assert(report.totalAccesses == 3);
+        assert(report.hits == 1);
+        assert(report.misses == 2);
+        assert(report.hits + report.misses == report.totalAccesses);
+
+        // Raw values preserve full IEEE-754 double precision
+        assert(std::abs(report.hitRate - (100.0 / 3.0)) < 1e-12);
+        assert(std::abs(report.missRate - (200.0 / 3.0)) < 1e-12);
+        assert(std::abs((report.hitRate + report.missRate) - 100.0) < 1e-12);
+
+        // Display rounding helper
+        assert(SimulationReport::roundTo(report.hitRate, 2) == 33.33);
+        assert(SimulationReport::roundTo(report.missRate, 2) == 66.67);
+    }
+
+    // 6. Cache Class Integration Test
+    {
+        CacheConfig config{4096, 64, MappingStrategy::SetAssociative, 4, ReplacementPolicyType::LRU};
+        config.timing.hit_time_ns = 1.0;
+        config.timing.additional_miss_penalty_ns = 50.0;
+        Cache cache(config);
+
+        // Initial zero-access state
+        auto initial_report = cache.getReport();
+        assert(initial_report.totalAccesses == 0);
+        assert(initial_report.amatNs == 0.0);
+
+        // Access 0: Miss
+        cache.access(0);
+        // Access 4: Hit (same block)
+        cache.access(4);
+        // Access 8: Hit (same block)
+        cache.access(8);
+        // Access 12: Hit (same block)
+        cache.access(12);
+
+        auto rep = cache.getReport();
+        assert(rep.totalAccesses == 4);
+        assert(rep.hits == 3);
+        assert(rep.misses == 1);
+        assert(rep.hitRate == 75.0);
+        assert(rep.missRate == 25.0);
+        assert(rep.hits + rep.misses == rep.totalAccesses);
+        assert(std::abs((rep.hitRate + rep.missRate) - 100.0) < 1e-9);
+        // AMAT = 1.0 + (0.25 * 50.0) = 13.5 ns
+        assert(std::abs(rep.amatNs - 13.5) < 1e-9);
+
+        // Update timing assumptions on existing cache
+        cache.setTimingAssumptions({1.5, 60.0, "Updated assumptions"});
+        auto updated_rep = cache.getReport();
+        // AMAT = 1.5 + (0.25 * 60.0) = 1.5 + 15.0 = 16.5 ns
+        assert(std::abs(updated_rep.amatNs - 16.5) < 1e-9);
+        assert(updated_rep.timing.hit_time_ns == 1.5);
+    }
+
+    std::cout << "  -> test_statistics_and_timing_model PASSED!" << std::endl;
+}
+
 int main() {
     std::cout << "========================================" << std::endl;
     std::cout << " CPU Cache Simulation Engine Unit Tests" << std::endl;
@@ -377,9 +535,10 @@ int main() {
     test_set_associative_evictions();
     test_lru_vs_fifo_replacement();
     test_workload_generator();
+    test_statistics_and_timing_model();
 
     std::cout << "========================================" << std::endl;
-    std::cout << " ALL CACHE ENGINE TESTS PASSED (8/8)!" << std::endl;
+    std::cout << " ALL CACHE ENGINE TESTS PASSED (9/9)!" << std::endl;
     std::cout << "========================================" << std::endl;
 
     return 0;
