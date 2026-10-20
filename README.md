@@ -53,18 +53,138 @@ cache-simulator/
 
 ---
 
-## API Endpoints
+## REST API Endpoints
 
-### `GET /api/health`
-Checks backend service availability.
+### 1. `GET /api/health`
+Returns the operational status of the C++ Crow backend.
 
-**Response (200 OK):**
+**Response (`200 OK`):**
 ```json
 {
   "status": "ok",
   "service": "cpu-cache-simulator-backend",
   "version": "1.0.0",
   "message": "C++ Crow Backend is healthy and ready for cache simulation requests."
+}
+```
+
+---
+
+### 2. `GET /api/config`
+Returns metadata regarding all supported cache parameters, workload generators, and timing assumptions.
+
+**Response (`200 OK`):**
+```json
+{
+  "supportedCapacities": [
+    { "bytes": 1024, "label": "1 KiB" },
+    { "bytes": 2048, "label": "2 KiB" },
+    { "bytes": 4096, "label": "4 KiB" },
+    { "bytes": 8192, "label": "8 KiB" },
+    { "bytes": 16384, "label": "16 KiB" },
+    { "bytes": 32768, "label": "32 KiB" }
+  ],
+  "supportedLineSizes": [
+    { "bytes": 16, "label": "16 B" },
+    { "bytes": 32, "label": "32 B" },
+    { "bytes": 64, "label": "64 B" },
+    { "bytes": 128, "label": "128 B" }
+  ],
+  "supportedMappingStrategies": [
+    "DirectMapped",
+    "SetAssociative",
+    "FullyAssociative"
+  ],
+  "supportedAssociativity": [2, 4, 8],
+  "supportedReplacementPolicies": ["LRU", "FIFO"],
+  "supportedWorkloads": ["sequential", "random"],
+  "accessLimits": {
+    "min": 100,
+    "max": 10000,
+    "default": 1000
+  },
+  "defaultTiming": {
+    "hitTimeNs": 1.0,
+    "additionalMissPenaltyNs": 50.0,
+    "notes": "Configurable educational timing model assumptions; not measurements of real hardware."
+  }
+}
+```
+
+---
+
+### 3. `POST /api/simulate`
+Executes a CPU cache simulation run using the native C++20 engine and returns the execution report and trace history.
+
+**Request (`application/json`):**
+```json
+{
+  "capacityBytes": 4096,
+  "lineSizeBytes": 64,
+  "mappingStrategy": "SetAssociative",
+  "associativity": 4,
+  "replacementPolicy": "LRU",
+  "workloadType": "sequential",
+  "numberOfAccesses": 1000,
+  "randomSeed": 42
+}
+```
+
+**Success Response (`200 OK`):**
+```json
+{
+  "cacheConfig": {
+    "capacityBytes": 4096,
+    "lineSizeBytes": 64,
+    "mappingStrategy": "SetAssociative",
+    "associativity": 4,
+    "replacementPolicy": "LRU",
+    "numSets": 16,
+    "totalLines": 64,
+    "offsetBits": 6,
+    "indexBits": 4,
+    "tagBits": 54
+  },
+  "workloadConfig": {
+    "workloadType": "Sequential",
+    "numberOfAccesses": 1000,
+    "randomSeed": 42
+  },
+  "statistics": {
+    "totalAccesses": 1000,
+    "hits": 937,
+    "misses": 63,
+    "evictions": 0,
+    "hitRate": 93.7,
+    "missRate": 6.3,
+    "amatNs": 4.15
+  },
+  "timingAssumptions": {
+    "hitTimeNs": 1.0,
+    "additionalMissPenaltyNs": 50.0,
+    "notes": "Configurable educational timing model assumptions; not measurements of real hardware."
+  },
+  "accessHistory": [
+    {
+      "accessIndex": 1,
+      "address": 0,
+      "hexAddress": "0x00000000",
+      "setIndex": 0,
+      "lineIndex": 0,
+      "tag": 0,
+      "hit": false,
+      "eviction": false,
+      "evictedTag": null
+    }
+  ]
+}
+```
+
+**Error Response (`400 Bad Request`):**
+```json
+{
+  "status": 400,
+  "error": "'capacityBytes' must be an integer power of two >= 1024."
 }
 ```
 
