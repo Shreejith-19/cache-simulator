@@ -330,6 +330,164 @@ void test_config_endpoint_serialization() {
     std::cout << "  -> test_config_endpoint_serialization PASSED!" << std::endl;
 }
 
+void test_compare_endpoint_and_same_trace() {
+    std::cout << "[TEST] Running test_compare_endpoint_and_same_trace..." << std::endl;
+
+    // 1. Valid multi-configuration comparison
+    std::string compare_json = R"({
+        "workload": {
+            "workloadType": "random",
+            "numberOfAccesses": 500,
+            "randomSeed": 12345
+        },
+        "configurations": [
+            {
+                "id": "c1",
+                "label": "Direct-Mapped 1KB",
+                "capacityBytes": 1024,
+                "lineSizeBytes": 32,
+                "mappingStrategy": "DirectMapped",
+                "replacementPolicy": "FIFO"
+            },
+            {
+                "id": "c2",
+                "label": "2-Way SA 2KB LRU",
+                "capacityBytes": 2048,
+                "lineSizeBytes": 32,
+                "mappingStrategy": "SetAssociative",
+                "associativity": 2,
+                "replacementPolicy": "LRU"
+            },
+            {
+                "id": "c3",
+                "label": "4-Way SA 4KB FIFO",
+                "capacityBytes": 4096,
+                "lineSizeBytes": 64,
+                "mappingStrategy": "SetAssociative",
+                "associativity": 4,
+                "replacementPolicy": "FIFO"
+            }
+        ]
+    })";
+
+    crow::json::rvalue r = crow::json::load(compare_json);
+    assert(r);
+    auto [comp_req, val] = CompareRequest::fromJson(r);
+    assert(val.valid);
+    assert(comp_req.has_value());
+    assert(comp_req->configurations.size() == 3);
+
+    // Generate single trace
+    std::vector<uint64_t> master_trace = WorkloadGenerator::generate(comp_req->workload);
+    assert(master_trace.size() == 500);
+
+    // Verify all configurations receive and process the exact same sequence of addresses
+    std::vector<std::vector<uint64_t>> processed_sequences(comp_req->configurations.size());
+    std::vector<CompareItemResult> results;
+
+    for (std::size_t i = 0; i < comp_req->configurations.size(); ++i) {
+        const auto& item = comp_req->configurations[i];
+        CacheConfig norm = item.toCacheConfig();
+        Cache cache(norm);
+
+        for (uint64_t addr : master_trace) {
+            processed_sequences[i].push_back(addr);
+            cache.access(addr);
+        }
+
+        CompareItemResult res;
+        res.id = item.id;
+        res.label = item.label;
+        res.normalizedConfig = norm;
+        res.report = cache.getReport();
+        results.push_back(std::move(res));
+    }
+
+    // Proof: Compare every address in every configuration's recorded stream against master_trace
+    for (std::size_t i = 0; i < comp_req->configurations.size(); ++i) {
+        assert(processed_sequences[i].size() == master_trace.size());
+        for (std::size_t j = 0; j < master_trace.size(); ++j) {
+            assert(processed_sequences[i][j] == master_trace[j]);
+        }
+    }
+    // Also pairwise check between configs
+    assert(processed_sequences[0] == processed_sequences[1]);
+    assert(processed_sequences[1] == processed_sequences[2]);
+
+    // Check statistics validity
+    for (const auto& item_res : results) {
+        assert(item_res.report.totalAccesses == 500);
+        assert(item_res.report.hits + item_res.report.misses == 500);
+        assert(item_res.report.hitRate >= 0.0 && item_res.report.hitRate <= 100.0);
+        assert(item_res.report.missRate >= 0.0 && item_res.report.missRate <= 100.0);
+        assert(item_res.report.amatNs > 0.0);
+    }
+
+    // Response serialization test
+    CompareResponse response;
+    response.workloadConfig = comp_req->workload;
+    response.comparisons = std::move(results);
+    response.highestHitRateConfigId = "c3";
+    response.lowestAmatConfigId = "c3";
+    for (std::size_t i = 0; i < 5; ++i) {
+        response.sampleAddresses.push_back(format_hex(master_trace[i]));
+    }
+
+    crow::json::wvalue resp_w = response.toJson();
+    std::string resp_dump = resp_w.dump();
+    crow::json::rvalue resp_r = crow::json::load(resp_dump);
+    assert(resp_r);
+    assert(resp_r.has("comparisons"));
+    assert(resp_r["comparisons"].size() == 3);
+    assert(resp_r.has("analysis"));
+    assert(resp_r["analysis"].has("workloadDependenceNotice"));
+    assert(resp_r.has("sampleTraceAddresses"));
+    assert(resp_r["sampleTraceAddresses"].size() == 5);
+
+    // 2. Validation bounds tests:
+    // Reject fewer than 2 configurations
+    std::string too_few_configs = R"({
+        "workload": {"workloadType": "sequential", "numberOfAccesses": 200},
+        "configurations": [
+            {"id": "c1", "capacityBytes": 1024, "lineSizeBytes": 32, "mappingStrategy": "DirectMapped"}
+        ]
+    })";
+    crow::json::rvalue r_few = crow::json::load(too_few_configs);
+    auto [req_few, val_few] = CompareRequest::fromJson(r_few);
+    assert(!val_few.valid);
+
+    // Reject more than 6 configurations
+    std::string too_many_configs = R"({
+        "workload": {"workloadType": "sequential", "numberOfAccesses": 200},
+        "configurations": [
+            {"id": "c1", "capacityBytes": 1024, "lineSizeBytes": 32, "mappingStrategy": "DirectMapped"},
+            {"id": "c2", "capacityBytes": 2048, "lineSizeBytes": 32, "mappingStrategy": "DirectMapped"},
+            {"id": "c3", "capacityBytes": 4096, "lineSizeBytes": 32, "mappingStrategy": "DirectMapped"},
+            {"id": "c4", "capacityBytes": 8192, "lineSizeBytes": 32, "mappingStrategy": "DirectMapped"},
+            {"id": "c5", "capacityBytes": 16384, "lineSizeBytes": 32, "mappingStrategy": "DirectMapped"},
+            {"id": "c6", "capacityBytes": 32768, "lineSizeBytes": 32, "mappingStrategy": "DirectMapped"},
+            {"id": "c7", "capacityBytes": 65536, "lineSizeBytes": 32, "mappingStrategy": "DirectMapped"}
+        ]
+    })";
+    crow::json::rvalue r_many = crow::json::load(too_many_configs);
+    auto [req_many, val_many] = CompareRequest::fromJson(r_many);
+    assert(!val_many.valid);
+
+    // Reject out-of-range numberOfAccesses (e.g. 50 < 100)
+    std::string too_few_accesses = R"({
+        "workload": {"workloadType": "sequential", "numberOfAccesses": 50},
+        "configurations": [
+            {"id": "c1", "capacityBytes": 1024, "lineSizeBytes": 32, "mappingStrategy": "DirectMapped"},
+            {"id": "c2", "capacityBytes": 2048, "lineSizeBytes": 32, "mappingStrategy": "DirectMapped"}
+        ]
+    })";
+    crow::json::rvalue r_acc = crow::json::load(too_few_accesses);
+    auto [req_acc, val_acc] = CompareRequest::fromJson(r_acc);
+    assert(!val_acc.valid);
+
+    std::cout << "  -> test_compare_endpoint_and_same_trace PASSED!" << std::endl;
+}
+
 int main() {
     std::cout << "========================================" << std::endl;
     std::cout << " CPU Cache Simulator API Integration Tests" << std::endl;
@@ -339,9 +497,10 @@ int main() {
     test_invalid_api_requests();
     test_simulation_response_serialization();
     test_config_endpoint_serialization();
+    test_compare_endpoint_and_same_trace();
 
     std::cout << "========================================" << std::endl;
-    std::cout << " ALL API INTEGRATION TESTS PASSED (4/4)!" << std::endl;
+    std::cout << " ALL API INTEGRATION TESTS PASSED (5/5)!" << std::endl;
     std::cout << "========================================" << std::endl;
 
     return 0;
