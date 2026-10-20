@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # MSVC specific flags to ensure clean standard compliance
 if (MSVC)
     add_compile_options(/permissive- /utf-8 /EHsc)
+    add_definitions(-D_WIN32_WINNT=0x0601)
 endif()
 
 include(FetchContent)
