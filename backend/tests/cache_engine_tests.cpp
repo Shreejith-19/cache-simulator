@@ -522,6 +522,79 @@ void test_statistics_and_timing_model() {
     std::cout << "  -> test_statistics_and_timing_model PASSED!" << std::endl;
 }
 
+void test_fully_associative_cache() {
+    std::cout << "[TEST] Running test_fully_associative_cache..." << std::endl;
+
+    // 1024 B capacity, 64 B line, Fully Associative => 16 lines, 1 set
+    CacheConfig config{1024, 64, MappingStrategy::FullyAssociative, 0, ReplacementPolicyType::LRU};
+    CacheConfig norm = config.normalized();
+    assert(norm.isValid());
+    assert(norm.numSets() == 1);
+    assert(norm.effectiveAssociativity() == 16);
+    assert(norm.indexBits() == 0);
+    assert(norm.offsetBits() == 6);
+    assert(norm.tagBits() == 58);
+
+    // 1. Test LRU in Fully Associative Cache
+    {
+        Cache lru_cache(norm);
+
+        // Fill all 16 lines with unique block addresses
+        for (uint64_t i = 0; i < 16; ++i) {
+            auto res = lru_cache.access(i * 64);
+            assert(!res.hit);
+            assert(!res.eviction);
+            assert(res.set_index == 0);
+            assert(res.tag == i);
+        }
+
+        // Access block 0 again -> HIT! (LRU updates last_accessed_time)
+        auto hit0 = lru_cache.access(0);
+        assert(hit0.hit);
+        assert(!hit0.eviction);
+
+        // Access 17th block (16 * 64): all 16 lines full.
+        // Block 0 was accessed most recently, so Block 1 (tag 1) is LRU!
+        auto evict_res = lru_cache.access(16 * 64);
+        assert(!evict_res.hit);
+        assert(evict_res.eviction);
+        assert(evict_res.evicted_tag == 1); // Tag 1 was evicted!
+
+        // Block 0 is still in cache -> HIT
+        assert(lru_cache.access(0).hit);
+        // Block 1 was evicted -> MISS
+        assert(!lru_cache.access(1 * 64).hit);
+    }
+
+    // 2. Test FIFO in Fully Associative Cache
+    {
+        CacheConfig fifo_cfg = norm;
+        fifo_cfg.replacement_policy = ReplacementPolicyType::FIFO;
+        Cache fifo_cache(fifo_cfg);
+
+        // Fill all 16 lines (blocks 0 through 15)
+        for (uint64_t i = 0; i < 16; ++i) {
+            fifo_cache.access(i * 64);
+        }
+
+        // Access block 0 again -> HIT! (FIFO does NOT change insertion order)
+        assert(fifo_cache.access(0).hit);
+
+        // Access 17th block (16 * 64): oldest inserted block is block 0 (tag 0)
+        auto evict_res = fifo_cache.access(16 * 64);
+        assert(!evict_res.hit);
+        assert(evict_res.eviction);
+        assert(evict_res.evicted_tag == 0); // Tag 0 was evicted in FIFO!
+
+        // Block 0 was evicted -> MISS
+        assert(!fifo_cache.access(0).hit);
+        // Block 1 was NOT evicted -> HIT
+        assert(fifo_cache.access(1 * 64).hit);
+    }
+
+    std::cout << "  -> test_fully_associative_cache PASSED!" << std::endl;
+}
+
 int main() {
     std::cout << "========================================" << std::endl;
     std::cout << " CPU Cache Simulation Engine Unit Tests" << std::endl;
@@ -534,11 +607,12 @@ int main() {
     test_direct_mapped_evictions();
     test_set_associative_evictions();
     test_lru_vs_fifo_replacement();
+    test_fully_associative_cache();
     test_workload_generator();
     test_statistics_and_timing_model();
 
     std::cout << "========================================" << std::endl;
-    std::cout << " ALL CACHE ENGINE TESTS PASSED (9/9)!" << std::endl;
+    std::cout << " ALL CACHE ENGINE TESTS PASSED (10/10)!" << std::endl;
     std::cout << "========================================" << std::endl;
 
     return 0;
