@@ -73,6 +73,41 @@ export async function runSimulation(payload) {
   return response.json();
 }
 
+/**
+ * Sends a multi-configuration comparison request to the C++ backend.
+ * The backend generates the workload memory access trace once and runs
+ * all configurations on the identical sequence.
+ * @param {object} payload Comparison parameters with workload and configurations
+ * @returns {Promise<object>} Comparison response with metrics for all configurations
+ */
+export async function runComparison(payload) {
+  const url = `${BASE_URL}/api/compare`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let errorMessage = `Comparison request failed (${response.status})`;
+    try {
+      const errorJson = await response.json();
+      if (errorJson && errorJson.error) {
+        errorMessage = errorJson.error;
+      }
+    } catch {
+      // Body wasn't JSON
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+}
+
 export function getApiBaseUrl() {
   return BASE_URL || '(Proxy to backend: http://localhost:8080)';
 }
+
