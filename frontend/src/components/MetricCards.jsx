@@ -46,7 +46,9 @@ export default function MetricCards({ statistics, timingAssumptions }) {
         <div className="text-xl sm:text-2xl font-bold font-mono text-rose-400">
           {misses.toLocaleString()}
         </div>
-        <div className="text-[11px] text-slate-400 font-mono">Memory stall lookups</div>
+        <div className="text-[11px] text-slate-400 font-mono">
+          Evictions: {evictions.toLocaleString()}
+        </div>
       </div>
 
       {/* 4. Hit Rate */}
