@@ -1,10 +1,10 @@
 add_executable(cache_simulator_tests
-    test_placeholder.cpp
+    cache_engine_tests.cpp
 )
 
-target_include_directories(cache_simulator_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+target_link_libraries(cache_simulator_tests PRIVATE
+    cache_engine
 )
 
 enable_testing()
-add_test(NAME BaselineTests COMMAND cache_simulator_tests)
+add_test(NAME CacheEngineTests COMMAND cache_simulator_tests)
