@@ -232,7 +232,10 @@ export default function App() {
             )}
           </div>
 
-          <ResultsSection results={simulationResults} />
+          <ResultsSection
+            results={simulationResults}
+            isUpdating={isRunning && simulationResults !== null}
+          />
         </div>
       </main>
 
