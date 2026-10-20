@@ -46,6 +46,11 @@ public:
     std::size_t getNumSets() const noexcept { return sets_.size(); }
     std::size_t getAssociativity() const noexcept { return config_.effectiveAssociativity(); }
 
+    SimulationReport getReport() const noexcept { return stats_.generateReport(config_.timing); }
+    SimulationReport getReport(const TimingAssumptions& timing) const noexcept { return stats_.generateReport(timing); }
+    void setTimingAssumptions(const TimingAssumptions& timing) noexcept { config_.timing = timing; }
+    const TimingAssumptions& getTimingAssumptions() const noexcept { return config_.timing; }
+
 private:
     CacheConfig config_;
     std::vector<CacheSet> sets_;
