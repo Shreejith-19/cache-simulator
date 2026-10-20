@@ -8,6 +8,28 @@ import {
   Legend,
 } from 'recharts';
 
+// Custom tooltip
+function CustomTooltip({ active, payload }) {
+  if (active && payload && payload.length) {
+    const item = payload[0].payload;
+    return (
+      <div className="bg-slate-950 border border-slate-700/80 p-3 rounded-lg shadow-xl font-mono text-xs space-y-1">
+        <div className="flex items-center gap-2 font-bold" style={{ color: item.color }}>
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }}></span>
+          <span>{item.name}</span>
+        </div>
+        <div className="text-slate-200">
+          Count: <span className="font-bold">{item.value.toLocaleString()}</span>
+        </div>
+        <div className="text-slate-400">
+          Percentage: <span className="font-bold">{item.rate.toFixed(2)}%</span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
 export default function HitMissDistribution({ statistics }) {
   if (!statistics) return null;
 
@@ -21,28 +43,6 @@ export default function HitMissDistribution({ statistics }) {
     { name: 'Cache Hits', value: hits, rate: hitRate, color: '#10b981' },
     { name: 'Cache Misses', value: misses, rate: missRate, color: '#f43f5e' },
   ];
-
-  // Custom tooltip
-  const CustomTooltip = ({ active, payload }) => {
-    if (active && payload && payload.length) {
-      const item = payload[0].payload;
-      return (
-        <div className="bg-slate-950 border border-slate-700/80 p-3 rounded-lg shadow-xl font-mono text-xs space-y-1">
-          <div className="flex items-center gap-2 font-bold" style={{ color: item.color }}>
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }}></span>
-            <span>{item.name}</span>
-          </div>
-          <div className="text-slate-200">
-            Count: <span className="font-bold">{item.value.toLocaleString()}</span>
-          </div>
-          <div className="text-slate-400">
-            Percentage: <span className="font-bold">{item.rate.toFixed(2)}%</span>
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
 
   // Custom Legend Renderer
   const renderLegend = () => (
